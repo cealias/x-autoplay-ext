@@ -1344,12 +1344,42 @@
         matched.push({ n: Number(m[2]), link: a });
       }
     }
-    if (matched.length === 0) return null;
+    if (matched.length === 0) {
+      // 登录后的 X 时间线里没有 /video/N 链接：用帖子自己的链接拼出大屏网址，交给 page-bridge.js 去打开
+      const own = getOwnStatusPath(article, tweetId);
+      return own ? makeVirtualVideoLink(`${own}/video/${preferredN || 1}`) : null;
+    }
     if (preferredN !== null) {
       const exact = matched.find(item => item.n === preferredN);
       if (exact) return exact.link;
     }
     return matched[0].link;
+  }
+
+  /** 帖子自己的网址，比如 /NASA/status/2111180963661435219（优先用发帖时间旁边的链接） */
+  function getOwnStatusPath(article, tweetId) {
+    const time = article.querySelector('a[href*="/status/"] time');
+    const links = [(time && time.closest('a')), ...article.querySelectorAll('a[href*="/status/"]')];
+    for (const a of links) {
+      const m = a && (a.getAttribute('href') || '').match(/^(\/[^/?#]+\/status\/(\d+))/);
+      if (m && m[2] === tweetId) return m[1];
+    }
+    return null;
+  }
+
+  /**
+   * “假链接”：看起来跟真的 <a> 一样（有 href、能 click），
+   * 点它的时候其实是请 page-bridge.js 在网页自己的环境里换网址，让 X 弹出它自己的视频大屏。
+   * （真的 <a> 一点会整页刷新；点视频本身只会开声音/暂停。）
+   */
+  function makeVirtualVideoLink(href) {
+    return {
+      getAttribute: (name) => (name === 'href' ? href : null),
+      click() {
+        document.documentElement.setAttribute('data-xap-open-video', href);
+        window.dispatchEvent(new Event('x-autoplay-open-video'));
+      }
+    };
   }
 
   /** 当前网址是不是指定帖子的 /status/<编号>/video/N 大屏网址 */
