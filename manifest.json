@@ -1,8 +1,11 @@
 {
   "manifest_version": 3,
   "name": "X 自动连播助手",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "description": "在 X (Twitter) 网页端自动平滑滚动连播浏览帖子，支持视频自动播放、单图停留、多图自动点开大图切换浏览。",
+  "permissions": [
+    "storage"
+  ],
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",

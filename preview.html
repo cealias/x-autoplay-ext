@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VITRA UI x-autoplay-ext 预览与手感测试</title>
+  <link rel="stylesheet" href="content.css">
+  <style>
+    body {
+      background-color: #0b0e14;
+      color: #e2e8f0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 80px 24px 120px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+    .hero {
+      max-width: 680px;
+      text-align: center;
+      margin-bottom: 40px;
+    }
+    .hero h1 {
+      font-size: 32px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      background: linear-gradient(135deg, #38bdf8, #818cf8, #c084fc);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 12px;
+    }
+    .hero p {
+      color: #94a3b8;
+      font-size: 15px;
+      line-height: 1.6;
+    }
+    .demo-card {
+      max-width: 600px;
+      width: 100%;
+      background: rgba(22, 27, 40, 0.65);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 20px;
+      padding: 24px;
+      margin-bottom: 24px;
+      backdrop-filter: blur(20px);
+      box-shadow: 0 16px 36px -8px rgba(0, 0, 0, 0.5);
+    }
+    .demo-card h3 {
+      margin-top: 0;
+      color: #38bdf8;
+      font-size: 18px;
+    }
+    .demo-card ul {
+      padding-left: 20px;
+      color: #cbd5e1;
+      font-size: 14px;
+      line-height: 1.8;
+    }
+    .tip-box {
+      background: rgba(56, 189, 248, 0.1);
+      border-left: 3px solid #38bdf8;
+      padding: 12px 16px;
+      border-radius: 0 10px 10px 0;
+      font-size: 13px;
+      color: #7dd3fc;
+      margin-top: 16px;
+    }
+  </style>
+</head>
+<body>
+  <div class="hero">
+    <h1>VITRA UI 极简微型悬浮按钮已就绪</h1>
+    <p>左上角的悬浮窗已更新为极简微型胶囊形态，彻底移除发光阴影与冗余状态，只保留纯粹的果冻弹性与倒计时秒数！</p>
+  </div>
+
+  <div class="demo-card">
+    <h3>✨ 请在左上角亲自体验以下细节：</h3>
+    <ul>
+      <li><strong>⚙️ 极简设置面板</strong>：点击悬浮窗上的齿轮按钮，可弹出 VITRA 晶体毛玻璃个性化面板，支持实时调节与即时自动保存。</li>
+      <li><strong>⌨️ 全局连播快捷键</strong>：默认设置为右手最顺手的 <code>P</code> 键（Play/Pause），按下即切换连播/暂停；支持在设置面板中点击并按下任意键自定义录制！</li>
+      <li><strong>⏱️ 图片与推文停留秒数</strong>：自由滑动调节单图/多图（默认 5s）与纯文本推文（默认 4s）的浏览时长。</li>
+      <li><strong>🎬 短视频重播规则</strong>：可自由开关短视频连播 2 遍功能，并可精细调节短视频时长判定阈值（默认低于 5s）。</li>
+      <li><strong>🔄 一键恢复默认</strong>：在设置面板底部点击“恢复默认”，随时一键回到作者最喜欢的原汁原味黄金配置。</li>
+      <li><strong>QQ 弹弹的果冻拖拽</strong>：按住悬浮窗拖拽手柄或空白处拉扯，感受速度拉伸（Squash & Stretch）与松手时的胡克定律弹簧超调振荡！</li>
+    </ul>
+    <div class="tip-box">
+      提示：在 Chrome / 豆包浏览器扩展管理页面点击“🔄 重新加载”后，刷新 X (Twitter) 网页即可全量体验。
+    </div>
+  </div>
+
+  <!-- 引入扩展脚本 -->
+  <script src="content.js"></script>
+</body>
+</html>

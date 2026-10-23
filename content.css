@@ -1,279 +1,592 @@
 /* ========================================================
-   X 自动连播插件样式表 (x-autoplay-ext)
-   风格：macOS Liquid Glass / 毛玻璃半透明质感
+   X 自动连播插件 (x-autoplay-ext) —— VITRA UI 极简光学悬浮小按钮
    ======================================================== */
 
+:root {
+  /* --- 白昼模式 (Day) --- */
+  --xap-day-bg: rgba(255, 255, 255, 0.78);
+  --xap-day-border-t: rgba(255, 255, 255, 0.98);
+  --xap-day-border-l: rgba(255, 255, 255, 0.75);
+  --xap-day-border-rb: rgba(200, 220, 255, 0.35);
+  --xap-day-bevel: rgba(255, 255, 255, 0.85);
+  --xap-day-text-title: #0F172A;
+  --xap-day-text-sub: #475569;
+
+  /* --- 暗夜模式 (Night) --- */
+  --xap-night-bg: rgba(22, 28, 42, 0.82);
+  --xap-night-border-t: rgba(255, 255, 255, 0.35);
+  --xap-night-border-l: rgba(255, 255, 255, 0.20);
+  --xap-night-border-rb: rgba(255, 255, 255, 0.06);
+  --xap-night-bevel: rgba(255, 255, 255, 0.22);
+  --xap-night-text-title: #F8FAFC;
+  --xap-night-text-sub: #94A3B8;
+
+  /* 默认使用暗夜变量 */
+  --xap-bg: var(--xap-night-bg);
+  --xap-border-t: var(--xap-night-border-t);
+  --xap-border-l: var(--xap-night-border-l);
+  --xap-border-rb: var(--xap-night-border-rb);
+  --xap-bevel: var(--xap-night-bevel);
+  --xap-text-title: var(--xap-night-text-title);
+  --xap-text-sub: var(--xap-night-text-sub);
+
+  --xap-spring-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* 白昼环境自动切换 */
+html[data-xap-theme="day"] {
+  --xap-bg: var(--xap-day-bg);
+  --xap-border-t: var(--xap-day-border-t);
+  --xap-border-l: var(--xap-day-border-l);
+  --xap-border-rb: var(--xap-day-border-rb);
+  --xap-bevel: var(--xap-day-bevel);
+  --xap-text-title: var(--xap-day-text-title);
+  --xap-text-sub: var(--xap-day-text-sub);
+}
+
+/* ========================================================
+   1. VITRA 极简微型悬浮小按钮 (#x-autoplay-widget)
+   彻底去掉大范围发光阴影，不让屏幕周围泛白变亮
+   ======================================================== */
 #x-autoplay-widget {
   position: fixed;
   top: 18px;
   left: 18px;
-  z-index: 2147483647; /* 保证在最顶层 */
-  display: flex;
+  z-index: 2147483647;
+  display: inline-flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 14px 8px 10px;
-  background: rgba(22, 26, 34, 0.78);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  backdrop-filter: blur(20px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 9999px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), 0 2px 6px rgba(0, 0, 0, 0.2);
-  color: #ffffff;
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  font-size: 13.5px;
-  font-weight: 500;
-  cursor: grab;
   user-select: none;
-  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, transform 0.1s ease;
-  line-height: 1;
+  -webkit-user-select: none;
+  touch-action: none;
+  isolation: isolate;
+  will-change: transform;
+  transform-origin: center center;
+  font-family: -apple-system, BlinkMacSystemFont, "Plus Jakarta Sans", "SF Pro Display", "PingFang SC", "Segoe UI", Roboto, sans-serif;
+  cursor: grab;
 }
 
-#x-autoplay-widget:active {
-  cursor: grabbing;
+#x-autoplay-widget.is-dragging {
+  cursor: grabbing !important;
 }
 
-#x-autoplay-widget:hover {
-  background: rgba(26, 32, 44, 0.88);
-  border-color: rgba(255, 255, 255, 0.32);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
-}
-
-/* 按钮主体 */
-.x-autoplay-toggle-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background: transparent;
-  border: none;
-  color: inherit;
-  font-size: inherit;
-  font-weight: 600;
-  cursor: pointer;
-  padding: 4px 6px;
-  border-radius: 8px;
-  transition: opacity 0.15s ease;
-}
-
-.x-autoplay-toggle-btn:hover {
-  opacity: 0.9;
-}
-
-/* 视频播放模式切换小开关（X 大屏 / 幕布） */
-.x-autoplay-mode-btn {
-  display: flex;
-  align-items: center;
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  color: rgba(255, 255, 255, 0.92);
-  font-family: inherit;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  padding: 4px 8px;
-  border-radius: 999px;
-  white-space: nowrap;
-  transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
-}
-
-.x-autoplay-mode-btn:hover {
-  background: rgba(255, 255, 255, 0.18);
-  border-color: rgba(255, 255, 255, 0.32);
-}
-
-.x-autoplay-mode-btn:active {
-  transform: scale(0.96);
-}
-
-/* 运行状态圆点指示灯 */
-.x-autoplay-status-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background-color: #94a3b8; /* 默认未运行：灰色/静止 */
-  transition: background-color 0.3s ease, box-shadow 0.3s ease;
-}
-
-.x-autoplay-running .x-autoplay-status-dot {
-  background-color: #10b981; /* 运行中：柔和绿色 */
-  box-shadow: 0 0 10px #10b981;
-  animation: x-autoplay-pulse 2s infinite ease-in-out;
-}
-
-.x-autoplay-paused .x-autoplay-status-dot {
-  background-color: #f59e0b; /* 暂停中：暖橙色 */
-  box-shadow: 0 0 6px rgba(245, 158, 11, 0.6);
-}
-
-/* 状态动态描述信息 */
-.x-autoplay-status-text {
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.72);
-  max-width: 180px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  padding-left: 2px;
-  border-left: 1px solid rgba(255, 255, 255, 0.16);
-  padding-left: 8px;
-  font-weight: 400;
-}
-
-/* 呼吸动画 */
-@keyframes x-autoplay-pulse {
-  0% {
-    transform: scale(0.95);
-    box-shadow: 0 0 4px #10b981;
-  }
-  50% {
-    transform: scale(1.15);
-    box-shadow: 0 0 12px #10b981;
-  }
-  100% {
-    transform: scale(0.95);
-    box-shadow: 0 0 4px #10b981;
-  }
-}
-
-/* 拖拽指示标识 */
-.x-autoplay-drag-handle {
-  display: flex;
-  align-items: center;
-  color: rgba(255, 255, 255, 0.35);
-  margin-right: -2px;
-}
-
-/* ========================================================
-   视频全屏幕布（盖在整个网页最上面，视频画面画在里面的 canvas 上）
-   ======================================================== */
-#x-autoplay-video-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 2147483646; /* 比悬浮按钮低一层，按钮还能点 */
-  background: #000;
-  cursor: pointer;
-}
-
-#x-autoplay-video-overlay .x-autoplay-ov-canvas {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  display: block;
-}
-
-/* 幕布右上角操作按钮（退出全屏 / 下一条） */
-#x-autoplay-video-overlay .x-autoplay-ov-top-actions {
-  position: absolute;
-  top: 18px;
-  right: 24px;
+/* 核心壳体：仅保留自身极紧凑自然的微暗弱阴影，杜绝任何外部发光 */
+#x-autoplay-widget .vitra-body {
+  position: relative;
   z-index: 2;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 7px;
+  padding: 5px 10px 5px 8px;
+  border-radius: 999px;
+  background: var(--xap-bg);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-top: 1.2px solid var(--xap-border-t);
+  border-left: 1px solid var(--xap-border-l);
+  border-right: 1px solid var(--xap-border-rb);
+  border-bottom: 1px solid var(--xap-border-rb);
+  color: var(--xap-text-title);
+  /* 紧贴组件边缘的极轻自然投影，绝对不会让外部屏幕变亮 */
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35), 0 1px 3px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+  transition: border-color 0.25s ease, background 0.25s ease;
 }
 
-#x-autoplay-video-overlay .x-autoplay-ov-btn {
-  padding: 8px 14px;
-  background: rgba(22, 26, 34, 0.78);
-  -webkit-backdrop-filter: blur(16px) saturate(180%);
-  backdrop-filter: blur(16px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  border-radius: 9999px;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
-  color: #ffffff;
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  user-select: none;
-  transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
-}
-
-#x-autoplay-video-overlay .x-autoplay-ov-btn:hover {
-  background: rgba(38, 46, 62, 0.9);
-  border-color: rgba(255, 255, 255, 0.4);
-}
-
-#x-autoplay-video-overlay .x-autoplay-ov-btn:active {
-  transform: scale(0.96);
-}
-
-#x-autoplay-video-overlay .x-autoplay-ov-bar {
+/* 极窄非对称内倒角 */
+#x-autoplay-widget .vitra-inner-bevel {
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  padding: 24px 24px 16px;
-  background: linear-gradient(to top, rgba(0, 0, 0, 0.78), rgba(0, 0, 0, 0));
-  color: #fff;
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  font-size: 13px;
+  inset: 1px;
+  border-radius: 999px;
   pointer-events: none;
+  box-shadow: inset 1px 1px 1.5px var(--xap-bevel);
+  z-index: 3;
 }
 
-/* 进度条可点击热区：至少 16px 高，单独开启 pointer-events */
-#x-autoplay-video-overlay .x-autoplay-ov-progress {
-  height: 20px;
+/* 鼠标镜面追光层 */
+#x-autoplay-widget .vitra-glare {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: radial-gradient(circle 70px at var(--local-x, 50%) var(--local-y, 50%), rgba(255, 255, 255, 0.32) 0%, rgba(255, 255, 255, 0) 70%);
+  pointer-events: none;
+  mix-blend-mode: overlay;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  z-index: 4;
+}
+
+#x-autoplay-widget:hover .vitra-glare {
+  opacity: 1;
+}
+
+/* 内部内容层 */
+#x-autoplay-widget .vitra-content {
+  position: relative;
+  z-index: 5;
   display: flex;
   align-items: center;
-  cursor: pointer;
-  pointer-events: auto;
-  touch-action: none;
-  user-select: none;
+  gap: 6px;
 }
 
-/* 进度条轨道：平时显示细条，鼠标放上去或拖动时变粗 */
-#x-autoplay-video-overlay .x-autoplay-ov-progress-track {
+/* 拖拽手柄微图标 */
+.x-autoplay-drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--xap-text-sub);
+  opacity: 0.5;
+  padding: 1px;
+  border-radius: 3px;
+  cursor: grab;
+  transition: opacity 0.2s ease, color 0.2s ease;
+}
+
+#x-autoplay-widget:hover .x-autoplay-drag-handle {
+  opacity: 0.9;
+  color: #38bdf8;
+}
+
+.x-autoplay-drag-handle svg {
+  display: block;
+}
+
+/* ========================================================
+   2. 极简光学状态核心 (Status Orb)
+   ======================================================== */
+.vitra-status-orb {
   position: relative;
-  width: 100%;
-  height: 4px;
-  background: rgba(255, 255, 255, 0.25);
-  border-radius: 999px;
-  transition: height 0.15s ease;
+  width: 10px;
+  height: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
-#x-autoplay-video-overlay .x-autoplay-ov-progress:hover .x-autoplay-ov-progress-track,
-#x-autoplay-video-overlay .x-autoplay-ov-progress.is-dragging .x-autoplay-ov-progress-track {
-  height: 7px;
-}
-
-#x-autoplay-video-overlay .x-autoplay-ov-progress-fill {
-  position: relative;
-  height: 100%;
-  width: 0;
-  background: #1d9bf0;
-  border-radius: 999px;
-}
-
-/* 圆形拖动柄：悬停或拖动时显现 */
-#x-autoplay-video-overlay .x-autoplay-ov-progress-thumb {
+.vitra-orb-glow {
   position: absolute;
-  right: -7px;
-  top: 50%;
-  width: 14px;
-  height: 14px;
+  inset: -2px;
   border-radius: 50%;
-  background: #ffffff;
-  border: 2px solid #1d9bf0;
-  box-sizing: border-box;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
-  transform: translateY(-50%) scale(0);
-  transition: transform 0.15s ease;
+  opacity: 0;
+  filter: blur(2px);
+  transition: opacity 0.3s ease;
   pointer-events: none;
 }
 
-#x-autoplay-video-overlay .x-autoplay-ov-progress:hover .x-autoplay-ov-progress-thumb,
-#x-autoplay-video-overlay .x-autoplay-ov-progress.is-dragging .x-autoplay-ov-progress-thumb {
-  transform: translateY(-50%) scale(1);
+.vitra-orb-core,
+.x-autoplay-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #94A3B8;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.15), inset 0 1px 1px rgba(255, 255, 255, 0.5);
+  transition: all 0.3s var(--xap-spring-bounce);
 }
 
-#x-autoplay-video-overlay .x-autoplay-ov-info {
+/* 运行中：极光绿微脉冲 */
+#x-autoplay-widget.x-autoplay-running .vitra-orb-glow {
+  opacity: 0.85;
+  background: radial-gradient(circle, rgba(16, 185, 129, 0.8) 0%, rgba(52, 211, 153, 0) 70%);
+  animation: vitraMiniPulse 2s infinite ease-in-out;
+}
+
+#x-autoplay-widget.x-autoplay-running .vitra-orb-core,
+#x-autoplay-widget.x-autoplay-running .x-autoplay-status-dot {
+  background: #10B981;
+  box-shadow: 0 0 6px #10B981, inset 0 1px 1px rgba(255, 255, 255, 0.8);
+}
+
+/* 暂停中：暖橙晶体 */
+#x-autoplay-widget.x-autoplay-paused .vitra-orb-core,
+#x-autoplay-widget.x-autoplay-paused .x-autoplay-status-dot {
+  background: #F59E0B;
+  box-shadow: 0 0 5px rgba(245, 158, 11, 0.6);
+}
+
+@keyframes vitraMiniPulse {
+  0% { transform: scale(0.9); opacity: 0.6; }
+  50% { transform: scale(1.3); opacity: 0.95; }
+  100% { transform: scale(0.9); opacity: 0.6; }
+}
+
+/* ========================================================
+   3. 极简主控按钮
+   ======================================================== */
+.x-autoplay-toggle-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px 4px 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.03) 100%);
+  color: var(--xap-text-title);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.12),
+    inset 0 1px 1px rgba(255, 255, 255, 0.3);
+  transition:
+    transform 0.2s var(--xap-spring-bounce),
+    background 0.2s ease,
+    border-color 0.2s ease;
+  line-height: 1;
+}
+
+.x-autoplay-toggle-btn:hover {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0.06) 100%);
+  border-color: rgba(255, 255, 255, 0.35);
+  transform: translateY(-0.5px);
+}
+
+.x-autoplay-toggle-btn:active {
+  transform: translateY(0.5px) scale(0.95);
+}
+
+.vitra-btn-icon-wrapper {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  color: #38bdf8;
+  font-size: 8.5px;
+}
+
+.x-autoplay-btn-label {
+  letter-spacing: -0.01em;
+}
+
+/* ========================================================
+   4. 极简秒数指示徽章 (只留纯秒数)
+   ======================================================== */
+.x-autoplay-status-text {
+  font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  color: #38BDF8;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  letter-spacing: 0.02em;
+  line-height: 1.1;
+  white-space: nowrap;
+  display: none; /* 没秒数时自动隐藏，不占任何空间 */
+}
+
+/* 当有秒数内容时才显示 */
+.x-autoplay-status-text:not(:empty) {
+  display: inline-block;
+}
+
+/* ========================================================
+   5. 极简设置按钮 (.x-autoplay-settings-btn)
+   ======================================================== */
+.x-autoplay-settings-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--xap-text-sub);
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.25s var(--xap-spring-bounce), color 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+  flex-shrink: 0;
+}
+
+.x-autoplay-settings-btn:hover {
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.16);
+  border-color: rgba(56, 189, 248, 0.35);
+  transform: scale(1.1) rotate(30deg);
+}
+
+.x-autoplay-settings-btn:active {
+  transform: scale(0.95);
+}
+
+.x-autoplay-settings-btn svg {
+  display: block;
+}
+
+/* ========================================================
+   6. VITRA 连播设置面板 (#x-autoplay-settings-panel)
+   ======================================================== */
+#x-autoplay-settings-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  width: 286px;
+  border-radius: 18px;
+  background: var(--xap-bg);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border-top: 1.2px solid var(--xap-border-t);
+  border-left: 1px solid var(--xap-border-l);
+  border-right: 1px solid var(--xap-border-rb);
+  border-bottom: 1px solid var(--xap-border-rb);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.25);
+  color: var(--xap-text-title);
+  padding: 14px 16px;
+  z-index: 1000;
+  cursor: default;
+  box-sizing: border-box;
+  transform-origin: top left;
+  opacity: 0;
+  transform: translateY(-8px) scale(0.95);
+  pointer-events: none;
+  transition: opacity 0.22s ease, transform 0.22s var(--xap-spring-bounce);
+}
+
+#x-autoplay-settings-panel.open-above {
+  top: auto;
+  bottom: calc(100% + 8px);
+  transform-origin: bottom left;
+  transform: translateY(8px) scale(0.95);
+}
+
+#x-autoplay-settings-panel.is-open {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+
+/* 顶部标题栏 */
+.vitra-settings-header {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  margin-top: 4px;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-#x-autoplay-video-overlay .x-autoplay-ov-hint {
-  opacity: 0.75;
+html[data-xap-theme="day"] .vitra-settings-header {
+  border-bottom-color: rgba(0, 0, 0, 0.08);
+}
+
+.vitra-settings-title {
+  font-size: 13px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--xap-text-title);
+}
+
+.vitra-settings-close {
+  background: transparent;
+  border: none;
+  color: var(--xap-text-sub);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 6px;
+  transition: color 0.2s, background 0.2s;
+}
+
+.vitra-settings-close:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.15);
+}
+
+/* 设置项容器 */
+.vitra-settings-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.vitra-setting-row {
+  display: flex;
+  flex-direction: column;
+}
+
+.vitra-setting-header-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+
+.vitra-setting-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--xap-text-title);
+}
+
+.vitra-setting-desc {
+  font-size: 10.5px;
+  color: var(--xap-text-sub);
+  margin-bottom: 6px;
+  line-height: 1.3;
+}
+
+.vitra-val-badge {
+  font-family: "JetBrains Mono", "SF Mono", monospace;
+  font-size: 11px;
+  font-weight: 700;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  padding: 1px 6px;
+  border-radius: 999px;
+  line-height: 1.2;
+}
+
+/* 滑块样式 */
+.vitra-slider {
+  width: 100%;
+  height: 5px;
+  border-radius: 3px;
+  outline: none;
+  background: rgba(255, 255, 255, 0.15);
+  accent-color: #38bdf8;
+  cursor: pointer;
+  margin: 2px 0 0;
+  border: none;
+}
+
+html[data-xap-theme="day"] .vitra-slider {
+  background: rgba(0, 0, 0, 0.12);
+}
+
+/* 开关 Toggle Switch */
+.vitra-switch {
+  position: relative;
+  display: inline-block;
+  width: 34px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.vitra-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+  margin: 0;
+}
+
+.vitra-switch-slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 18px;
+  transition: background 0.25s;
+}
+
+html[data-xap-theme="day"] .vitra-switch-slider {
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.vitra-switch-slider:before {
+  position: absolute;
+  content: "";
+  height: 14px;
+  width: 14px;
+  left: 2px;
+  bottom: 2px;
+  background-color: white;
+  border-radius: 50%;
+  transition: transform 0.25s var(--xap-spring-bounce);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+
+.vitra-switch input:checked + .vitra-switch-slider {
+  background-color: #10b981;
+}
+
+.vitra-switch input:checked + .vitra-switch-slider:before {
+  transform: translateX(16px);
+}
+
+/* 快捷键录制按钮 */
+.vitra-key-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--xap-text-title);
+  font-family: "JetBrains Mono", "SF Mono", monospace;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.2);
+  transition: all 0.2s var(--xap-spring-bounce);
+}
+
+html[data-xap-theme="day"] .vitra-key-btn {
+  border-color: rgba(0, 0, 0, 0.15);
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.vitra-key-btn:hover {
+  border-color: #38bdf8;
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+}
+
+.vitra-key-btn.is-recording {
+  border-color: #38bdf8;
+  background: rgba(56, 189, 248, 0.25);
+  color: #38bdf8;
+  animation: vitraKeyPulse 1.2s infinite ease-in-out;
+}
+
+@keyframes vitraKeyPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.5); transform: scale(1); }
+  50% { box-shadow: 0 0 0 5px rgba(56, 189, 248, 0.1); transform: scale(1.02); }
+}
+
+/* 底部操作行 */
+.vitra-settings-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+html[data-xap-theme="day"] .vitra-settings-footer {
+  border-top-color: rgba(0, 0, 0, 0.08);
+}
+
+.vitra-reset-btn {
+  background: transparent;
+  border: none;
+  color: var(--xap-text-sub);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 3px 6px;
+  border-radius: 4px;
+  transition: color 0.2s;
+}
+
+.vitra-reset-btn:hover {
+  color: #38bdf8;
+  text-decoration: underline;
+}
+
+.vitra-saved-tip {
+  font-size: 10px;
+  color: #10b981;
+  opacity: 0.85;
 }

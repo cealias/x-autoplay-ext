@@ -26,8 +26,6 @@
   let maxReachedDocY = 0;
   // 用户声音偏好：默认 false（全屏自动开启声音）；按 M 或点静音按钮可切换并记住
   let userMutedPref = false;
-  // 视频播放方式：'native'（优先用 X 自带大屏）或 'canvas'（盖黑色幕布），默认 'native'
-  let videoMode = loadVideoMode();
   // 已经完整看完的帖子
   const doneKeys = new Set();
   const doneEls = new WeakSet();
@@ -52,29 +50,75 @@
   // 悬浮窗 DOM 元素
   let widgetEl = null;
   let toggleBtnEl = null;
-  let modeBtnEl = null;
   let statusDotEl = null;
   let statusTextEl = null;
 
-  /** 读取本地保存的视频播放模式，默认使用 X 大屏 ('native') */
-  function loadVideoMode() {
+  // -------------------------------------------------------------
+  // 0a. 个性化配置系统 (Settings System) —— 保持用户最喜欢的默认参数
+  // -------------------------------------------------------------
+  const DEFAULT_SETTINGS = {
+    photoDuration: 5,        // 图片播放停留秒数（默认 5s）
+    textDuration: 4,         // 纯文本推文阅读秒数（默认 4s）
+    videoReplayEnabled: true,// 短视频是否自动重播 2 遍（默认开启）
+    videoReplayThreshold: 5, // 低于多少秒视为短视频（默认 5s）
+    toggleKey: 'p'           // 连播开启/暂停快捷键（默认右手最顺手的 'p' 键）
+  };
+
+  let settings = { ...DEFAULT_SETTINGS };
+  let isRecordingKey = false;
+  let settingsPanelEl = null;
+
+  function loadSettings() {
     try {
-      const saved = localStorage.getItem('x_autoplay_video_mode');
-      if (saved === 'canvas' || saved === 'overlay' || saved === '幕布') {
-        return 'canvas';
+      const local = localStorage.getItem('x_autoplay_settings');
+      if (local) {
+        settings = { ...DEFAULT_SETTINGS, ...JSON.parse(local) };
       }
-      if (saved === 'native' || saved === 'x' || saved === 'lightbox' || saved === 'X 大屏') {
-        return 'native';
+    } catch (_) {}
+
+    try {
+      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.sync) {
+        chrome.storage.sync.get(['x_autoplay_settings'], (res) => {
+          if (res && res.x_autoplay_settings) {
+            settings = { ...DEFAULT_SETTINGS, ...res.x_autoplay_settings };
+            updateSettingsUI();
+          }
+        });
       }
-    } catch (e) {}
-    return 'native';
+    } catch (_) {}
   }
 
-  /** 保存视频播放模式到 localStorage */
-  function saveVideoMode(mode) {
+  function saveSettings(newSettings) {
+    settings = { ...settings, ...newSettings };
     try {
-      localStorage.setItem('x_autoplay_video_mode', mode);
-    } catch (e) {}
+      localStorage.setItem('x_autoplay_settings', JSON.stringify(settings));
+    } catch (_) {}
+    try {
+      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.sync) {
+        chrome.storage.sync.set({ x_autoplay_settings: settings });
+      }
+    } catch (_) {}
+    updateSettingsUI();
+    updateWidgetUI();
+  }
+
+  function formatKeyDisplay(k) {
+    if (!k) return '未设置';
+    if (k === ' ' || k.toLowerCase() === 'space') return 'Space';
+    if (k.length === 1) return k.toUpperCase();
+    return k;
+  }
+
+  function isToggleHotKey(e) {
+    if (isRecordingKey) return false;
+    if (!settings.toggleKey) return false;
+    if (e.ctrlKey || e.altKey || e.metaKey) return false;
+    const cur = settings.toggleKey.trim().toLowerCase();
+    const pressed = e.key.toLowerCase();
+    if (cur === 'space' || cur === ' ') {
+      return pressed === ' ' || pressed === 'space';
+    }
+    return pressed === cur;
   }
 
   // -------------------------------------------------------------
@@ -86,21 +130,8 @@
     return !!(target && target.closest && target.closest('#x-autoplay-widget'));
   }
 
-  function isOnOverlayControl(target) {
-    return !!(target && target.closest && target.closest('.x-autoplay-ov-progress, .x-autoplay-ov-top-actions'));
-  }
-
-  function isOnVideoOverlay(target) {
-    return !!(target && target.closest && target.closest('#x-autoplay-video-overlay'));
-  }
-
-  /**
-   * 判断事件是不是发生在 X 自带的大屏（媒体查看器）里。
-   * 大屏打开且没有盖黑色幕布时，用户在里面滚评论区、按方向键或空格，都是正常用 X，不算滚走时间线页面。
-   */
   function isInsideNativeLightbox(target) {
     if (!isLightboxOpen()) return false;
-    if (document.getElementById('x-autoplay-video-overlay') || isOnVideoOverlay(target)) return false;
     return true;
   }
 
@@ -120,13 +151,11 @@
     window.addEventListener('touchstart', (e) => {
       if (!e.isTrusted || isOnWidget(e.target)) return;
       userActionSeq++;
-      if (!isOnOverlayControl(e.target)) {
-        lastUserInputAt = Date.now();
-      }
+      lastUserInputAt = Date.now();
     }, { capture: true, passive: true });
 
     window.addEventListener('touchmove', (e) => {
-      if (!e.isTrusted || isOnWidget(e.target) || isOnOverlayControl(e.target)) return;
+      if (!e.isTrusted || isOnWidget(e.target)) return;
       if (isInsideNativeLightbox(e.target)) return;
       lastUserInputAt = Date.now();
       recordUserScroll();
@@ -135,9 +164,7 @@
     window.addEventListener('pointerdown', (e) => {
       if (!e.isTrusted || isOnWidget(e.target)) return;
       userActionSeq++;
-      if (!isOnOverlayControl(e.target)) {
-        lastUserInputAt = Date.now();
-      }
+      lastUserInputAt = Date.now();
       // 在页面滚动条上按下鼠标，目标是 document.documentElement（大屏打开时不算滚走时间线）
       if (e.target === document.documentElement && !isInsideNativeLightbox(e.target)) {
         isDraggingScrollbar = true;
@@ -158,9 +185,19 @@
     window.addEventListener('pointercancel', stopScrollbarDrag, { capture: true, passive: true });
 
     window.addEventListener('keydown', (e) => {
-      if (!e.isTrusted || isOnWidget(e.target)) return;
+      if (!e.isTrusted) return;
       const t = e.target;
       if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+
+      // 检查连播开关快捷键（支持自定义，默认右手 'p' 键）
+      if (isToggleHotKey(e)) {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleAutoplay();
+        return;
+      }
+
+      if (isOnWidget(e.target)) return;
 
       userActionSeq++;
       // 快进快退和静音键不算暂停意图，其余按键记录用户输入时间
@@ -169,13 +206,13 @@
       }
 
       if (SCROLL_KEYS.includes(e.key)) {
-        // 幕布打开时按空格是暂停/继续视频，由幕布自己处理，不算滚动页面
-        if (activeOverlay && e.key === ' ') return;
+        // 大图打开时按空格不是滚动页面
+        if (isLightboxOpen() && e.key === ' ') return;
         // X 大屏打开期间，在大屏里按键盘滚动（如看评论、空格暂停），不算滚走时间线页面
         if (isInsideNativeLightbox(e.target)) return;
         recordUserScroll();
       }
-    }, { capture: true, passive: true });
+    }, { capture: true, passive: false });
   }
 
   /** 当前这条帖子开始后，用户有没有自己滚动过页面 */
@@ -189,40 +226,78 @@
   }
 
   // -------------------------------------------------------------
-  // 1. 悬浮窗 UI 创建与拖拽逻辑
+  // 1. VITRA 极简光学悬浮小按钮与果冻物理引擎
   // -------------------------------------------------------------
+
+  /** 动态检测 X 站主题（白昼极光 / 暗夜深空） */
+  function syncVitraTheme() {
+    try {
+      const bg = window.getComputedStyle(document.body).backgroundColor;
+      const match = bg.match(/rgb\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+      if (match) {
+        const r = parseInt(match[1], 10);
+        const g = parseInt(match[2], 10);
+        const b = parseInt(match[3], 10);
+        const luma = 0.299 * r + 0.587 * g + 0.114 * b;
+        document.documentElement.setAttribute('data-xap-theme', luma > 140 ? 'day' : 'night');
+        return;
+      }
+    } catch (_) {}
+    document.documentElement.setAttribute('data-xap-theme', 'night');
+  }
+
   function createFloatingWidget() {
     if (document.getElementById('x-autoplay-widget')) return;
 
+    syncVitraTheme();
+
     widgetEl = document.createElement('div');
     widgetEl.id = 'x-autoplay-widget';
+    widgetEl.className = 'layer-2-jelly';
     widgetEl.innerHTML = `
-      <div class="x-autoplay-drag-handle" title="按住可拖动位置">
-        <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor">
-          <circle cx="2" cy="2" r="1.5"/>
-          <circle cx="8" cy="2" r="1.5"/>
-          <circle cx="2" cy="7" r="1.5"/>
-          <circle cx="8" cy="7" r="1.5"/>
-          <circle cx="2" cy="12" r="1.5"/>
-          <circle cx="8" cy="12" r="1.5"/>
-        </svg>
+      <div class="vitra-body">
+        <div class="vitra-inner-bevel"></div>
+        <div class="vitra-glare"></div>
+        <div class="vitra-content">
+          <div class="x-autoplay-drag-handle" title="按住可拖动">
+            <svg width="8" height="12" viewBox="0 0 8 12" fill="currentColor">
+              <circle cx="2" cy="2" r="1.2"/>
+              <circle cx="6" cy="2" r="1.2"/>
+              <circle cx="2" cy="6" r="1.2"/>
+              <circle cx="6" cy="6" r="1.2"/>
+              <circle cx="2" cy="10" r="1.2"/>
+              <circle cx="6" cy="10" r="1.2"/>
+            </svg>
+          </div>
+          <div class="vitra-status-orb" title="运行状态">
+            <div class="vitra-orb-glow"></div>
+            <div class="vitra-orb-core x-autoplay-status-dot"></div>
+          </div>
+          <button type="button" class="x-autoplay-toggle-btn" id="x-autoplay-toggle-btn">
+            <span class="vitra-btn-icon-wrapper"><span class="vitra-btn-icon">▶</span></span>
+            <span class="x-autoplay-btn-label">连播</span>
+          </button>
+          <div class="x-autoplay-status-text" id="x-autoplay-status-text"></div>
+          <button type="button" class="x-autoplay-settings-btn" id="x-autoplay-settings-btn" title="连播设置">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            </svg>
+          </button>
+        </div>
       </div>
-      <div class="x-autoplay-status-dot"></div>
-      <button class="x-autoplay-toggle-btn" id="x-autoplay-toggle-btn">
-        <span class="x-autoplay-btn-label">▶️ 开启连播</span>
-      </button>
-      <button type="button" class="x-autoplay-mode-btn" id="x-autoplay-mode-btn"></button>
-      <div class="x-autoplay-status-text" id="x-autoplay-status-text">就绪</div>
     `;
 
     document.body.appendChild(widgetEl);
 
     toggleBtnEl = widgetEl.querySelector('#x-autoplay-toggle-btn');
-    modeBtnEl = widgetEl.querySelector('#x-autoplay-mode-btn');
     statusDotEl = widgetEl.querySelector('.x-autoplay-status-dot');
     statusTextEl = widgetEl.querySelector('#x-autoplay-status-text');
+    const settingsBtnEl = widgetEl.querySelector('#x-autoplay-settings-btn');
 
-    updateVideoModeUI();
+    // 挂载设置面板
+    const panel = createSettingsPanel();
+    widgetEl.appendChild(panel);
 
     // 恢复历史拖拽位置
     try {
@@ -230,7 +305,7 @@
       if (savedPos) {
         const { top, left } = JSON.parse(savedPos);
         widgetEl.style.top = `${Math.max(10, Math.min(window.innerHeight - 60, top))}px`;
-        widgetEl.style.left = `${Math.max(10, Math.min(window.innerWidth - 220, left))}px`;
+        widgetEl.style.left = `${Math.max(10, Math.min(window.innerWidth - 180, left))}px`;
       }
     } catch (e) {}
 
@@ -240,100 +315,457 @@
       toggleAutoplay();
     });
 
-    // 绑定视频播放模式切换开关（不触发拖动，也不触发开启/暂停连播）
-    modeBtnEl.addEventListener('click', (e) => {
-      e.preventDefault();
+    // 绑定设置按钮点击事件
+    settingsBtnEl.addEventListener('click', (e) => {
       e.stopPropagation();
-      videoMode = videoMode === 'native' ? 'canvas' : 'native';
-      saveVideoMode(videoMode);
-      updateVideoModeUI();
+      toggleSettingsPanel();
     });
 
-    // 绑定拖拽逻辑
-    initDraggable(widgetEl);
-  }
+    // 点击外部区域关闭设置面板
+    document.addEventListener('pointerdown', (e) => {
+      if (settingsPanelEl && settingsPanelEl.classList.contains('is-open')) {
+        if (!settingsPanelEl.contains(e.target) && !e.target.closest('#x-autoplay-settings-btn')) {
+          closeSettingsPanel();
+        }
+      }
+    });
 
-  function updateVideoModeUI() {
-    if (!modeBtnEl) return;
-    if (videoMode === 'native') {
-      modeBtnEl.textContent = '📺 X 大屏';
-      modeBtnEl.title = '当前视频模式：X 大屏（可看评论、点赞、收藏），点击切换为幕布';
-      modeBtnEl.dataset.mode = 'native';
-    } else {
-      modeBtnEl.textContent = '🎞️ 幕布';
-      modeBtnEl.title = '当前视频模式：黑色幕布全屏，点击切换为 X 大屏';
-      modeBtnEl.dataset.mode = 'canvas';
-    }
+    // 实时动态镜面追光跟踪
+    widgetEl.addEventListener('pointermove', (e) => {
+      const rect = widgetEl.getBoundingClientRect();
+      widgetEl.style.setProperty('--local-x', `${(e.clientX - rect.left).toFixed(1)}px`);
+      widgetEl.style.setProperty('--local-y', `${(e.clientY - rect.top).toFixed(1)}px`);
+    });
+
+    // 绑定果冻弹性拖拽物理引擎
+    initDraggable(widgetEl);
+    updateWidgetUI();
   }
 
   function updateWidgetUI() {
     if (!widgetEl) return;
     const btnLabel = toggleBtnEl.querySelector('.x-autoplay-btn-label');
+    const iconSpan = toggleBtnEl.querySelector('.vitra-btn-icon');
+    const settingsBtnEl = widgetEl.querySelector('#x-autoplay-settings-btn');
+    const keyHint = formatKeyDisplay(settings.toggleKey);
 
     if (isRunning) {
       widgetEl.classList.remove('x-autoplay-paused');
       widgetEl.classList.add('x-autoplay-running');
-      btnLabel.textContent = '⏸ 暂停连播';
+      btnLabel.textContent = '暂停';
+      if (iconSpan) iconSpan.textContent = '⏸';
+      toggleBtnEl.title = `暂停连播 (快捷键: ${keyHint})`;
     } else {
       widgetEl.classList.remove('x-autoplay-running');
       widgetEl.classList.add('x-autoplay-paused');
-      btnLabel.textContent = '▶️ 开启连播';
-      updateStatus('已暂停');
+      btnLabel.textContent = '连播';
+      if (iconSpan) iconSpan.textContent = '▶';
+      toggleBtnEl.title = `开启连播 (快捷键: ${keyHint})`;
+      updateStatus('');
     }
-    updateVideoModeUI();
+    if (settingsBtnEl) {
+      settingsBtnEl.title = `连播设置 (当前快捷键: ${keyHint})`;
+    }
   }
 
+  function createSettingsPanel() {
+    if (settingsPanelEl) return settingsPanelEl;
+
+    settingsPanelEl = document.createElement('div');
+    settingsPanelEl.id = 'x-autoplay-settings-panel';
+    settingsPanelEl.innerHTML = `
+      <div class="vitra-settings-header">
+        <div class="vitra-settings-title">
+          <span class="vitra-settings-icon">⚙️</span>
+          <span>连播个性化配置</span>
+        </div>
+        <button type="button" class="vitra-settings-close" id="xap-settings-close" title="关闭设置">✕</button>
+      </div>
+      
+      <div class="vitra-settings-body">
+        <!-- 图片停留秒数 -->
+        <div class="vitra-setting-row">
+          <div class="vitra-setting-header-line">
+            <span class="vitra-setting-name">🖼️ 图片停留时长</span>
+            <span class="vitra-val-badge" id="xap-val-photo">${settings.photoDuration}s</span>
+          </div>
+          <div class="vitra-setting-desc">单图及多图每页的浏览时间</div>
+          <input type="range" min="1" max="30" step="1" value="${settings.photoDuration}" id="xap-set-photo" class="vitra-slider">
+        </div>
+
+        <!-- 纯文本推文停留秒数 -->
+        <div class="vitra-setting-row">
+          <div class="vitra-setting-header-line">
+            <span class="vitra-setting-name">📝 文本阅读时长</span>
+            <span class="vitra-val-badge" id="xap-val-text">${settings.textDuration}s</span>
+          </div>
+          <div class="vitra-setting-desc">纯文字推文的停留阅读时间</div>
+          <input type="range" min="1" max="30" step="1" value="${settings.textDuration}" id="xap-set-text" class="vitra-slider">
+        </div>
+
+        <!-- 短视频自动重播开关 -->
+        <div class="vitra-setting-row">
+          <div class="vitra-setting-header-line">
+            <span class="vitra-setting-name">🎬 短视频自动重播</span>
+            <label class="vitra-switch">
+              <input type="checkbox" id="xap-set-replay-enable" ${settings.videoReplayEnabled ? 'checked' : ''}>
+              <span class="vitra-switch-slider"></span>
+            </label>
+          </div>
+          <div class="vitra-setting-desc">遇到短视频时自动连播 2 遍</div>
+        </div>
+
+        <!-- 短视频判定阈值 -->
+        <div class="vitra-setting-row" id="xap-row-threshold" style="${settings.videoReplayEnabled ? '' : 'display: none;'}">
+          <div class="vitra-setting-header-line">
+            <span class="vitra-setting-name">⏱️ 重播判定阈值</span>
+            <span class="vitra-val-badge" id="xap-val-threshold">低于 ${settings.videoReplayThreshold}s</span>
+          </div>
+          <div class="vitra-setting-desc">视频时长低于该秒数时判定为短视频并重播</div>
+          <input type="range" min="1" max="15" step="1" value="${settings.videoReplayThreshold}" id="xap-set-threshold" class="vitra-slider">
+        </div>
+
+        <!-- 连播开关快捷键 -->
+        <div class="vitra-setting-row">
+          <div class="vitra-setting-header-line">
+            <span class="vitra-setting-name">⌨️ 连播开关快捷键</span>
+            <button type="button" class="vitra-key-btn" id="xap-set-key" title="点击后按下键盘按键录制">
+              <span class="vitra-key-name">${formatKeyDisplay(settings.toggleKey)}</span>
+            </button>
+          </div>
+          <div class="vitra-setting-desc">网页任意位置一键开启/暂停连播（打字时不触发）</div>
+        </div>
+      </div>
+
+      <div class="vitra-settings-footer">
+        <button type="button" class="vitra-reset-btn" id="xap-settings-reset" title="恢复为您最喜欢的默认参数">恢复默认</button>
+        <span class="vitra-saved-tip" id="xap-saved-tip">自动实时保存</span>
+      </div>
+    `;
+
+    // 阻止面板内事件穿透
+    ['pointerdown', 'mousedown', 'touchstart', 'click', 'dblclick'].forEach(evt => {
+      settingsPanelEl.addEventListener(evt, (e) => e.stopPropagation());
+    });
+
+    // 关闭按钮
+    settingsPanelEl.querySelector('#xap-settings-close').addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeSettingsPanel();
+    });
+
+    // 图片滑块
+    const photoSlider = settingsPanelEl.querySelector('#xap-set-photo');
+    const photoVal = settingsPanelEl.querySelector('#xap-val-photo');
+    photoSlider.addEventListener('input', () => {
+      const v = parseInt(photoSlider.value, 10);
+      photoVal.textContent = `${v}s`;
+      saveSettings({ photoDuration: v });
+    });
+
+    // 文本滑块
+    const textSlider = settingsPanelEl.querySelector('#xap-set-text');
+    const textVal = settingsPanelEl.querySelector('#xap-val-text');
+    textSlider.addEventListener('input', () => {
+      const v = parseInt(textSlider.value, 10);
+      textVal.textContent = `${v}s`;
+      saveSettings({ textDuration: v });
+    });
+
+    // 重播开关
+    const replayCheck = settingsPanelEl.querySelector('#xap-set-replay-enable');
+    const thresholdRow = settingsPanelEl.querySelector('#xap-row-threshold');
+    replayCheck.addEventListener('change', () => {
+      const en = replayCheck.checked;
+      thresholdRow.style.display = en ? '' : 'none';
+      saveSettings({ videoReplayEnabled: en });
+    });
+
+    // 阈值滑块
+    const thresholdSlider = settingsPanelEl.querySelector('#xap-set-threshold');
+    const thresholdVal = settingsPanelEl.querySelector('#xap-val-threshold');
+    thresholdSlider.addEventListener('input', () => {
+      const v = parseInt(thresholdSlider.value, 10);
+      thresholdVal.textContent = `低于 ${v}s`;
+      saveSettings({ videoReplayThreshold: v });
+    });
+
+    // 快捷键录制
+    const keyBtn = settingsPanelEl.querySelector('#xap-set-key');
+    const keyName = keyBtn.querySelector('.vitra-key-name');
+
+    function onKeyRecord(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.key === 'Escape') {
+        stopRecordingKey();
+        return;
+      }
+      if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return;
+      saveSettings({ toggleKey: e.key });
+      stopRecordingKey();
+    }
+
+    function startRecordingKey() {
+      isRecordingKey = true;
+      keyBtn.classList.add('is-recording');
+      keyName.textContent = '按任意键...';
+      window.addEventListener('keydown', onKeyRecord, true);
+    }
+
+    function stopRecordingKey() {
+      isRecordingKey = false;
+      keyBtn.classList.remove('is-recording');
+      keyName.textContent = formatKeyDisplay(settings.toggleKey);
+      window.removeEventListener('keydown', onKeyRecord, true);
+    }
+
+    keyBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (isRecordingKey) {
+        stopRecordingKey();
+      } else {
+        startRecordingKey();
+      }
+    });
+
+    // 恢复默认按钮
+    const resetBtn = settingsPanelEl.querySelector('#xap-settings-reset');
+    resetBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      saveSettings({ ...DEFAULT_SETTINGS });
+      const tip = settingsPanelEl.querySelector('#xap-saved-tip');
+      if (tip) {
+        tip.textContent = '已恢复默认值！';
+        setTimeout(() => { tip.textContent = '自动实时保存'; }, 1800);
+      }
+    });
+
+    return settingsPanelEl;
+  }
+
+  function updateSettingsUI() {
+    if (!settingsPanelEl) return;
+    const photoSlider = settingsPanelEl.querySelector('#xap-set-photo');
+    const photoVal = settingsPanelEl.querySelector('#xap-val-photo');
+    if (photoSlider) photoSlider.value = settings.photoDuration;
+    if (photoVal) photoVal.textContent = `${settings.photoDuration}s`;
+
+    const textSlider = settingsPanelEl.querySelector('#xap-set-text');
+    const textVal = settingsPanelEl.querySelector('#xap-val-text');
+    if (textSlider) textSlider.value = settings.textDuration;
+    if (textVal) textVal.textContent = `${settings.textDuration}s`;
+
+    const replayCheck = settingsPanelEl.querySelector('#xap-set-replay-enable');
+    const thresholdRow = settingsPanelEl.querySelector('#xap-row-threshold');
+    if (replayCheck) replayCheck.checked = !!settings.videoReplayEnabled;
+    if (thresholdRow) thresholdRow.style.display = settings.videoReplayEnabled ? '' : 'none';
+
+    const thresholdSlider = settingsPanelEl.querySelector('#xap-set-threshold');
+    const thresholdVal = settingsPanelEl.querySelector('#xap-val-threshold');
+    if (thresholdSlider) thresholdSlider.value = settings.videoReplayThreshold;
+    if (thresholdVal) thresholdVal.textContent = `低于 ${settings.videoReplayThreshold}s`;
+
+    const keyName = settingsPanelEl.querySelector('.vitra-key-name');
+    if (keyName && !isRecordingKey) keyName.textContent = formatKeyDisplay(settings.toggleKey);
+
+    const settingsBtn = widgetEl && widgetEl.querySelector('#x-autoplay-settings-btn');
+    if (settingsBtn) {
+      settingsBtn.title = `连播设置 (当前快捷键: ${formatKeyDisplay(settings.toggleKey)})`;
+    }
+  }
+
+  function toggleSettingsPanel() {
+    if (!settingsPanelEl) {
+      const panel = createSettingsPanel();
+      if (widgetEl) widgetEl.appendChild(panel);
+    }
+    if (settingsPanelEl.classList.contains('is-open')) {
+      closeSettingsPanel();
+    } else {
+      openSettingsPanel();
+    }
+  }
+
+  function openSettingsPanel() {
+    if (!settingsPanelEl) {
+      const panel = createSettingsPanel();
+      if (widgetEl) widgetEl.appendChild(panel);
+    }
+    updateSettingsUI();
+    const rect = widgetEl.getBoundingClientRect();
+    if (rect.bottom + 380 > window.innerHeight) {
+      settingsPanelEl.classList.add('open-above');
+    } else {
+      settingsPanelEl.classList.remove('open-above');
+    }
+    settingsPanelEl.classList.add('is-open');
+  }
+
+  function closeSettingsPanel() {
+    if (!settingsPanelEl) return;
+    settingsPanelEl.classList.remove('is-open');
+    if (isRecordingKey) {
+      isRecordingKey = false;
+      const keyBtn = settingsPanelEl.querySelector('#xap-set-key');
+      const keyName = settingsPanelEl.querySelector('.vitra-key-name');
+      if (keyBtn) keyBtn.classList.remove('is-recording');
+      if (keyName) keyName.textContent = formatKeyDisplay(settings.toggleKey);
+    }
+  }
+
+  /**
+   * 极简状态显示：只留纯秒数（如 "5s", "12s"），长提示文字不显示在按钮上
+   */
   function updateStatus(text) {
-    if (statusTextEl) {
-      statusTextEl.textContent = text;
-      statusTextEl.title = text;
+    if (!statusTextEl) return;
+    if (!text) {
+      statusTextEl.textContent = '';
+      return;
+    }
+    statusTextEl.title = text; // 完整信息只在鼠标悬停 title 显示，不占界面空间
+    const m = text.match(/\((\d+)s\)/) || text.match(/(\d+)s/);
+    if (m) {
+      statusTextEl.textContent = `${m[1]}s`;
+    } else {
+      statusTextEl.textContent = '';
     }
   }
 
+  /**
+   * VITRA 胡克定律果冻弹性拖拽物理引擎 (Hooke's Law Jelly Engine)
+   */
   function initDraggable(el) {
     let isDragging = false;
-    let startX = 0, startY = 0;
-    let origX = 0, origY = 0;
+    let startPointerX = 0, startPointerY = 0;
+    let initialLeft = 0, initialTop = 0;
+    let lastX = 0, lastY = 0;
+    let movedDistance = 0;
 
-    el.addEventListener('mousedown', (e) => {
-      // 如果点击的是开启/暂停按钮或模式切换开关，则不触发拖拽
-      if (e.target.closest('#x-autoplay-toggle-btn, #x-autoplay-mode-btn')) return;
+    let curX = 0, curY = 0;
+    let vx = 0, vy = 0;
+    let scaleX = 1, scaleY = 1;
+    let springRafId = null;
+
+    function stepSpring() {
+      const stiffness = 0.22;
+      const damping = 0.72;
+
+      vx = (vx + (0 - curX) * stiffness) * damping;
+      vy = (vy + (0 - curY) * stiffness) * damping;
+      curX += vx;
+      curY += vy;
+
+      scaleX += (1 - scaleX) * 0.18;
+      scaleY += (1 - scaleY) * 0.18;
+
+      el.style.transform = `translate3d(${curX.toFixed(2)}px, ${curY.toFixed(2)}px, 0) scaleX(${scaleX.toFixed(4)}) scaleY(${scaleY.toFixed(4)})`;
+
+      const isSettled =
+        Math.abs(curX) < 0.08 &&
+        Math.abs(curY) < 0.08 &&
+        Math.abs(vx) < 0.08 &&
+        Math.abs(vy) < 0.08 &&
+        Math.abs(1 - scaleX) < 0.002;
+
+      if (!isSettled) {
+        springRafId = requestAnimationFrame(stepSpring);
+      } else {
+        curX = 0;
+        curY = 0;
+        vx = 0;
+        vy = 0;
+        scaleX = 1;
+        scaleY = 1;
+        el.style.transform = 'translate3d(0, 0, 0) scale(1)';
+        springRafId = null;
+      }
+    }
+
+    el.addEventListener('pointerdown', (e) => {
+      if (e.target.closest('#x-autoplay-toggle-btn') || e.target.closest('#x-autoplay-settings-btn') || e.target.closest('#x-autoplay-settings-panel')) return;
+
+      if (springRafId) {
+        cancelAnimationFrame(springRafId);
+        springRafId = null;
+      }
+
       isDragging = true;
-      startX = e.clientX;
-      startY = e.clientY;
+      movedDistance = 0;
+      startPointerX = e.clientX;
+      startPointerY = e.clientY;
+      lastX = e.clientX;
+      lastY = e.clientY;
+
       const rect = el.getBoundingClientRect();
-      origX = rect.left;
-      origY = rect.top;
-      el.style.transition = 'none';
+      initialLeft = rect.left;
+      initialTop = rect.top;
 
-      const onMouseMove = (ev) => {
-        if (!isDragging) return;
-        const dx = ev.clientX - startX;
-        const dy = ev.clientY - startY;
-        const newLeft = Math.max(8, Math.min(window.innerWidth - el.offsetWidth - 8, origX + dx));
-        const newTop = Math.max(8, Math.min(window.innerHeight - el.offsetHeight - 8, origY + dy));
-        el.style.left = `${newLeft}px`;
-        el.style.top = `${newTop}px`;
-      };
+      el.classList.add('is-dragging');
+      scaleX = 1.03;
+      scaleY = 0.96;
+      el.style.transform = `translate3d(0, 0, 0) scaleX(${scaleX}) scaleY(${scaleY})`;
 
-      const onMouseUp = () => {
-        if (isDragging) {
-          isDragging = false;
-          el.style.transition = '';
-          window.removeEventListener('mousemove', onMouseMove);
-          window.removeEventListener('mouseup', onMouseUp);
-          try {
-            localStorage.setItem('x_autoplay_widget_pos', JSON.stringify({
-              top: parseInt(el.style.top, 10),
-              left: parseInt(el.style.left, 10)
-            }));
-          } catch (err) {}
-        }
-      };
-
-      window.addEventListener('mousemove', onMouseMove);
-      window.addEventListener('mouseup', onMouseUp);
+      try {
+        el.setPointerCapture(e.pointerId);
+      } catch (_) {}
     });
+
+    el.addEventListener('pointermove', (e) => {
+      if (!isDragging) return;
+
+      const deltaX = e.clientX - startPointerX;
+      const deltaY = e.clientY - startPointerY;
+      movedDistance = Math.hypot(deltaX, deltaY);
+
+      const speedX = e.clientX - lastX;
+      const speedY = e.clientY - lastY;
+      lastX = e.clientX;
+      lastY = e.clientY;
+
+      const dynStretchX = Math.max(0.88, Math.min(1.15, 1 + (Math.abs(speedX) - Math.abs(speedY)) * 0.0035));
+      const dynStretchY = Math.max(0.88, Math.min(1.15, 1 + (Math.abs(speedY) - Math.abs(speedX)) * 0.0035));
+      const rotDeg = Math.max(-5, Math.min(5, speedX * 0.12));
+
+      const newLeft = Math.max(8, Math.min(window.innerWidth - el.offsetWidth - 8, initialLeft + deltaX));
+      const newTop = Math.max(8, Math.min(window.innerHeight - el.offsetHeight - 8, initialTop + deltaY));
+
+      el.style.left = `${newLeft}px`;
+      el.style.top = `${newTop}px`;
+      el.style.transform = `scaleX(${dynStretchX.toFixed(3)}) scaleY(${dynStretchY.toFixed(3)}) rotate(${rotDeg.toFixed(1)}deg)`;
+    });
+
+    const finishDrag = (e) => {
+      if (!isDragging) return;
+      isDragging = false;
+      el.classList.remove('is-dragging');
+
+      try {
+        el.releasePointerCapture(e.pointerId);
+      } catch (_) {}
+
+      if (movedDistance > 5) {
+        try {
+          localStorage.setItem('x_autoplay_widget_pos', JSON.stringify({
+            top: parseInt(el.style.top, 10),
+            left: parseInt(el.style.left, 10)
+          }));
+        } catch (_) {}
+
+        vx = (e.clientX - lastX) * 0.22;
+        vy = (e.clientY - lastY) * 0.22;
+        curX = vx * 2;
+        curY = vy * 2;
+        scaleX = 1.04;
+        scaleY = 0.96;
+        springRafId = requestAnimationFrame(stepSpring);
+      } else {
+        el.style.transform = 'translate3d(0, 0, 0) scale(1)';
+      }
+    };
+
+    el.addEventListener('pointerup', finishDrag);
+    el.addEventListener('pointercancel', finishDrag);
   }
 
   // -------------------------------------------------------------
@@ -382,7 +814,6 @@
     runToken++;
     scriptLightboxActive = false;
     scriptLightboxStatusId = null;
-    hideVideoOverlay();
     updateWidgetUI();
     updateStatus('你去了别的页面，已暂停连播');
   }
@@ -574,7 +1005,6 @@
       if (document.fullscreenElement) document.exitFullscreen();
       else if (document.webkitFullscreenElement) document.webkitExitFullscreen();
     } catch (e) {}
-    hideVideoOverlay();
   }
 
   function closeLightbox() {
@@ -644,30 +1074,17 @@
   }
 
   // -------------------------------------------------------------
-  // 4b. 视频全屏：无界面替身（供 X 原生大屏使用）与黑色幕布（兜底使用）
+  // 4b. 视频全屏播放控制器（给 X 原生大屏使用）
   // -------------------------------------------------------------
-  // 为什么幕布模式不直接把 X 的视频拉大？
-  // X 的时间线是“虚拟列表”：每条帖子靠外框上的 transform 摆在自己的位置上。
-  // 只要动了这些样式，X 就以为列表乱了，会把页面跳回顶部、把视频从网页上删掉。
-  // 所以幕布模式完全不碰 X 的网页：在最上面盖一层自己的幕布，用 canvas 把视频画面
-  // 一帧一帧画上去。而在“X 大屏”模式下，我们点开 X 自己的 /video/N 大屏，并用一个
-  // 不显示任何界面的替身对象交给 waitForVideoEnd，让用户能直接使用评论、点赞和收藏。
 
-  let activeOverlay = null;
   let lastApplySoundAt = 0;
 
-  function hideVideoOverlay() {
-    if (activeOverlay) activeOverlay.close();
-  }
-
   /**
-   * 创建“无界面的替身对象”，给 X 原生大屏模式下的 waitForVideoEnd 使用。
+   * 创建无界面的控制器对象，给 X 原生大屏模式下的 waitForVideoEnd 使用。
    * 不创建任何遮挡元素，让用户直接操作 X 的大屏界面（评论、点赞、收藏、原生进度条等）。
-   * 用户暂停通过监听视频的 pause 事件 + lastUserInputAt（暂停前 1 秒内有用户输入）判断。
+   * 支持键盘快捷键：N = 跳过，M = 静音切换。
    */
   function createNativeLightboxOverlay(video) {
-    hideVideoOverlay();
-
     let v = video;
     let closed = false;
     let skipped = false;
@@ -684,7 +1101,6 @@
 
     function onPause() {
       if (Date.now() - lastSeekAt < 400) return;
-      // 暂停前 1 秒内有用户真实输入，认作是用户自己暂停了视频
       if (Date.now() - lastUserInputAt < 1000) {
         userPaused = true;
       }
@@ -696,7 +1112,6 @@
 
     function onVolumeChange() {
       if (!v) return;
-      // 用户在 X 原生播放器上亲手点了静音/音量按钮时，同步记住用户的声音偏好
       if (Date.now() - lastUserInputAt < 800 && Date.now() - lastApplySoundAt > 150) {
         userMutedPref = !!(v.muted || v.volume === 0);
       }
@@ -728,12 +1143,10 @@
       if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
 
       if (e.key === 'n' || e.key === 'N') {
-        // N = 跳过这个视频，直接去下一条
         e.preventDefault();
         e.stopPropagation();
         skipped = true;
       } else if (e.key === 'm' || e.key === 'M') {
-        // M = 切换静音并记住偏好
         e.preventDefault();
         e.stopPropagation();
         if (v) {
@@ -751,7 +1164,6 @@
       closed = true;
       bindVideo(null);
       window.removeEventListener('keydown', onKey, true);
-      if (activeOverlay === api) activeOverlay = null;
     }
 
     const api = {
@@ -764,256 +1176,6 @@
       isScrubbing: () => false,
       isUserPaused: () => userPaused
     };
-    activeOverlay = api;
-    return api;
-  }
-
-  function showVideoOverlay(video) {
-    hideVideoOverlay();
-
-    const overlay = document.createElement('div');
-    overlay.id = 'x-autoplay-video-overlay';
-    overlay.innerHTML = `
-      <canvas class="x-autoplay-ov-canvas"></canvas>
-      <div class="x-autoplay-ov-top-actions">
-        <button type="button" class="x-autoplay-ov-btn" data-action="exit-fullscreen" title="退出全屏，在原位置继续播放 (ESC)">✕ 退出全屏</button>
-        <button type="button" class="x-autoplay-ov-btn" data-action="next-post" title="跳过这个视频，直接去下一条 (N)">⏭ 下一条</button>
-      </div>
-      <div class="x-autoplay-ov-bar">
-        <div class="x-autoplay-ov-progress">
-          <div class="x-autoplay-ov-progress-track">
-            <div class="x-autoplay-ov-progress-fill">
-              <div class="x-autoplay-ov-progress-thumb"></div>
-            </div>
-          </div>
-        </div>
-        <div class="x-autoplay-ov-info">
-          <span class="x-autoplay-ov-time">0:00 / 0:00</span>
-          <span class="x-autoplay-ov-hint">点画面：暂停/继续 · 拖动/←→：快进退 · M：声音 · ESC：退出全屏 · N：下一条</span>
-        </div>
-      </div>
-    `;
-    document.body.appendChild(overlay);
-
-    const canvas = overlay.querySelector('canvas');
-    const ctx = canvas.getContext('2d');
-    const progressEl = overlay.querySelector('.x-autoplay-ov-progress');
-    const fillEl = overlay.querySelector('.x-autoplay-ov-progress-fill');
-    const timeEl = overlay.querySelector('.x-autoplay-ov-time');
-    const exitBtn = overlay.querySelector('[data-action="exit-fullscreen"]');
-    const nextBtn = overlay.querySelector('[data-action="next-post"]');
-
-    let v = video;
-    let closed = false;
-    let skipped = false;          // 用户点了“下一条”或按了 N 键
-    let exitedFullscreen = false; // 用户点了“退出全屏”或按了 ESC
-    let scrolledOut = false;      // 用户在幕布上滚动了滚轮/触控板
-    let userPaused = false;
-    let isScrubbing = false;
-    let scrubTime = 0;
-    let raf = 0;
-
-    function resize() {
-      const dpr = window.devicePixelRatio || 1;
-      canvas.width = Math.round(window.innerWidth * dpr);
-      canvas.height = Math.round(window.innerHeight * dpr);
-    }
-    resize();
-
-    // 每一帧：把视频画面按原比例画在正中间
-    function draw() {
-      if (closed) return;
-      raf = requestAnimationFrame(draw);
-      if (!v || v.readyState < 2 || !v.videoWidth) return;
-
-      const cw = canvas.width;
-      const ch = canvas.height;
-      const scale = Math.min(cw / v.videoWidth, ch / v.videoHeight);
-      const w = v.videoWidth * scale;
-      const h = v.videoHeight * scale;
-      ctx.fillStyle = '#000';
-      ctx.fillRect(0, 0, cw, ch);
-      ctx.imageSmoothingQuality = 'high';
-      try { ctx.drawImage(v, (cw - w) / 2, (ch - h) / 2, w, h); } catch (e) {}
-
-      const d = v.duration;
-      if (d && isFinite(d) && !isScrubbing) {
-        fillEl.style.width = `${Math.min(100, (v.currentTime / d) * 100)}%`;
-        timeEl.textContent = `${formatTime(v.currentTime)} / ${formatTime(d)}`;
-      }
-    }
-    raf = requestAnimationFrame(draw);
-
-    // 计算鼠标/手指在进度条上的比例 (0 ~ 1)
-    function getProgressRatio(e) {
-      const rect = progressEl.getBoundingClientRect();
-      if (!rect.width) return 0;
-      return Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    }
-
-    function updateScrubPreview(e) {
-      if (!v || !v.duration || !isFinite(v.duration)) return;
-      const ratio = getProgressRatio(e);
-      scrubTime = ratio * v.duration;
-      fillEl.style.width = `${ratio * 100}%`;
-      timeEl.textContent = `${formatTime(scrubTime)} / ${formatTime(v.duration)}`;
-    }
-
-    // 进度条 pointer 事件 + setPointerCapture：支持点击与按住拖动
-    progressEl.addEventListener('pointerdown', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (!v || !v.duration || !isFinite(v.duration)) return;
-      isScrubbing = true;
-      progressEl.classList.add('is-dragging');
-      try { progressEl.setPointerCapture(e.pointerId); } catch (_) {}
-      updateScrubPreview(e);
-    });
-
-    progressEl.addEventListener('pointermove', (e) => {
-      if (!isScrubbing) return;
-      e.preventDefault();
-      e.stopPropagation();
-      updateScrubPreview(e);
-    });
-
-    const finishScrub = (e) => {
-      if (!isScrubbing) return;
-      e.preventDefault();
-      e.stopPropagation();
-      if (e.type === 'pointerup') {
-        updateScrubPreview(e);
-      }
-      isScrubbing = false;
-      progressEl.classList.remove('is-dragging');
-      try { progressEl.releasePointerCapture(e.pointerId); } catch (_) {}
-      if (v && v.duration && isFinite(v.duration)) {
-        v.currentTime = scrubTime;
-      }
-    };
-
-    progressEl.addEventListener('pointerup', finishScrub);
-    progressEl.addEventListener('pointercancel', finishScrub);
-    progressEl.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-    });
-
-    // 右上角按钮：退出全屏 / 下一条
-    exitBtn.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      exitedFullscreen = true;
-      close();
-    });
-
-    nextBtn.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      skipped = true;
-      close();
-    });
-
-    // 点画面：暂停/继续
-    const onClick = (e) => {
-      if (isOnOverlayControl(e.target)) return;
-      e.preventDefault();
-      e.stopPropagation();
-      if (v.paused) {
-        userPaused = false;
-        playVideo(v);
-      } else {
-        userPaused = true;
-        v.pause();
-      }
-    };
-
-    // 幕布打开时用户用滚轮/触控板滚动：关掉幕布、暂停这个视频，不要 preventDefault，让页面跟着用户滚
-    const onWheel = (e) => {
-      if (!e.isTrusted) return;
-      scrolledOut = true;
-      recordUserScroll();
-      if (v && document.body.contains(v)) v.pause();
-      close();
-    };
-
-    const onTouchMove = (e) => {
-      if (!e.isTrusted || isOnOverlayControl(e.target)) return;
-      scrolledOut = true;
-      recordUserScroll();
-      if (v && document.body.contains(v)) v.pause();
-      close();
-    };
-
-    const onKey = (e) => {
-      if (!e.isTrusted) return;
-      const t = e.target;
-      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
-
-      if (e.key === 'Escape') {
-        // ESC = 退出全屏，视频继续在原地播放
-        e.preventDefault();
-        e.stopPropagation();
-        exitedFullscreen = true;
-        close();
-      } else if (e.key === 'n' || e.key === 'N') {
-        // N = 跳过这个视频，直接去下一条
-        e.preventDefault();
-        e.stopPropagation();
-        skipped = true;
-        close();
-      } else if (e.key === 'm' || e.key === 'M') {
-        e.preventDefault();
-        e.stopPropagation();
-        userMutedPref = !(v.muted || v.volume === 0) ? true : false;
-        soundBlocked.delete(v); // 你亲手按的键，浏览器会放行有声播放
-        applySound(v);
-      } else if (e.key === 'ArrowLeft') {
-        e.preventDefault();
-        e.stopPropagation();
-        if (v && v.duration && isFinite(v.duration)) {
-          v.currentTime = Math.max(0, v.currentTime - 5);
-        }
-      } else if (e.key === 'ArrowRight') {
-        e.preventDefault();
-        e.stopPropagation();
-        if (v && v.duration && isFinite(v.duration)) {
-          v.currentTime = Math.min(v.duration, v.currentTime + 5);
-        }
-      } else if (e.key === ' ') {
-        e.preventDefault();
-        e.stopPropagation();
-        onClick(e);
-      }
-    };
-
-    overlay.addEventListener('click', onClick);
-    overlay.addEventListener('wheel', onWheel, { passive: true });
-    overlay.addEventListener('touchmove', onTouchMove, { passive: true });
-    window.addEventListener('keydown', onKey, true);
-    window.addEventListener('resize', resize);
-
-    function close() {
-      if (closed) return;
-      closed = true;
-      cancelAnimationFrame(raf);
-      window.removeEventListener('keydown', onKey, true);
-      window.removeEventListener('resize', resize);
-      overlay.remove();
-      if (activeOverlay === api) activeOverlay = null;
-    }
-
-    const api = {
-      close,
-      setVideo(nv) { v = nv; },
-      getVideo: () => v,
-      isSkipped: () => skipped,
-      isExitedFullscreen: () => exitedFullscreen,
-      isScrolledOut: () => scrolledOut,
-      isScrubbing: () => isScrubbing,
-      isUserPaused: () => userPaused
-    };
-    activeOverlay = api;
     return api;
   }
 
@@ -1126,7 +1288,7 @@
       let lostMs = 0;         // 视频不在网页上多久了
       let settled = false;
 
-      const isShort = () => v.duration && isFinite(v.duration) && v.duration < 5;
+      const isShort = () => !!settings.videoReplayEnabled && v.duration && isFinite(v.duration) && v.duration < (settings.videoReplayThreshold || 5);
       const needPlays = () => (isShort() ? 2 : 1);
 
       function onSeeking() {
@@ -1234,7 +1396,7 @@
         // 视频元素不在网页上了：可能是 X 换了一个新的，找一找；2.5 秒还找不到就算丢了
         if (!document.body.contains(v)) {
           lostMs += 250;
-          updateStatus(`${label}：视频重新加载中...`);
+          updateStatus('');
           const nv = reacquire();
           if (nv && document.body.contains(nv)) {
             bind(nv);
@@ -1254,7 +1416,7 @@
         const d = v.duration;
         if (!d || !isFinite(d)) {
           noDurationMs += 250;
-          updateStatus(`${label}：加载中...`);
+          updateStatus('');
           if (noDurationMs > 15000) finish('done');
           return;
         }
@@ -1281,49 +1443,10 @@
         }
         lastT = v.currentTime;
 
-        const displayLabel = overlay.isExitedFullscreen()
-          ? label.replace('全屏播放中', '原地播放中').replace('全屏视频', '原地视频')
-          : label;
-        const round = needPlays() === 2 ? `（短视频 第 ${Math.min(plays + 1, 2)}/2 遍）` : '';
-        const isPaused = v.paused && (pausedByUser || overlay.isUserPaused());
-        const pausedTip = isPaused ? ' ⏸' : '';
-        updateStatus(`${displayLabel}: ${formatTime(t)} / ${formatTime(d)}${round}${pausedTip}`);
+        const remainSec = Math.max(0, Math.ceil(d - t));
+        updateStatus(`${remainSec}s`);
       }, 250);
     });
-  }
-
-  /**
-   * 盖上幕布全屏播放一个视频，播完撤掉幕布
-   * （如果用户点了“退出全屏”，幕布会提前关掉，这里继续等视频在原地播完）
-   * @returns {Promise<'done'|'skipped'|'scrolled'|'aborted'|'lost'|false>} false 表示连播被暂停
-   */
-  async function playVideoFullscreen(v, token, label, reacquire, shouldAbort = null) {
-    // 时间线里的视频：先让它完整露在屏幕上（X 只播放屏幕上看得见的视频）
-    if (!v.closest('[aria-modal="true"], [role="dialog"]')) {
-      const r = v.getBoundingClientRect();
-      if (r.top < 60 || r.bottom > window.innerHeight) {
-        v.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        if (!(await interruptibleSleep(600, token))) return false;
-        if (hasUserScrolled()) return 'scrolled';
-      }
-    }
-
-    const overlay = showVideoOverlay(v);
-    const result = await waitForVideoEnd(v, token, label, overlay, reacquire, shouldAbort);
-
-    // 不管怎么结束的，都把视频停下，免得切走以后还在响
-    const cur = overlay.getVideo();
-    if (cur && document.body.contains(cur)) cur.pause();
-    overlay.close();
-
-    if (result === 'stopped' || !alive(token)) return false;
-    if (result === 'scrolled' || hasUserScrolled()) return 'scrolled';
-    if (result === 'aborted') return 'aborted';
-
-    // 如果用户主动退出了全屏，就算视频后来被回收也不要返回 lost 重开全屏
-    const finalResult = (result === 'lost' && overlay.isExitedFullscreen()) ? 'done' : result;
-    await interruptibleSleep(300, token);
-    return finalResult;
   }
 
   /**
@@ -1581,13 +1704,10 @@
 
   /**
    * 单个视频：
-   * 1. 默认优先在帖子里找 /status/<本帖编号>/video/N 链接，点开 X 自带大屏播放；
-   * 2. 如果处于“幕布”模式、找不到 /video/N 链接、或点了后 3 秒内大屏没打开/找不到视频，
-   *    就退回“幕布 + canvas”方式全屏播放。
+   * 优先点开 X 原生大屏播放；若无链接或打开失败，则原地播放，不加幕布。
    * @returns true 看完；false 被暂停；'scrolled' 用户滚走了；'retry' 视频丢了，要回去重播
    */
   async function handleVideo(article, token) {
-    updateStatus('🎬 准备全屏播放视频...');
     const key = getTweetKey(article);
     let v = await waitForVideoEl(article, token);
     if (!alive(token)) return false;
@@ -1596,29 +1716,26 @@
     let curArt = findArticleByKey(key) || article;
 
     // 优先尝试 X 原生大屏模式
-    if (videoMode === 'native') {
-      let videoLink = findOwnVideoLink(curArt, 1);
-      // 如果 <video> 刚加载出来，控制栏上的全屏 <a> 链接可能慢半拍出现，稍微等一下
-      if (!videoLink && v) {
-        for (let i = 0; i < 2 && !videoLink; i++) {
-          if (!(await interruptibleSleep(250, token))) return false;
-          if (hasUserScrolled()) return 'scrolled';
-          curArt = findArticleByKey(key) || curArt;
-          videoLink = findOwnVideoLink(curArt, 1);
-        }
-      }
-
-      if (videoLink) {
-        const nativeRes = await playVideoInXLightbox(curArt, videoLink, v, token, '🎬 X 大屏播放中');
-        if (nativeRes === false) return false;
-        if (nativeRes === 'scrolled' || hasUserScrolled()) return 'scrolled';
-        if (nativeRes !== 'fallback') {
-          return nativeRes === 'lost' ? 'retry' : true;
-        }
+    let videoLink = findOwnVideoLink(curArt, 1);
+    if (!videoLink && v) {
+      for (let i = 0; i < 2 && !videoLink; i++) {
+        if (!(await interruptibleSleep(250, token))) return false;
+        if (hasUserScrolled()) return 'scrolled';
+        curArt = findArticleByKey(key) || curArt;
+        videoLink = findOwnVideoLink(curArt, 1);
       }
     }
 
-    // 兜底（或用户选择了“幕布”模式）：用黑色幕布 + canvas 播放
+    if (videoLink) {
+      const nativeRes = await playVideoInXLightbox(curArt, videoLink, v, token, '🎬 X 大屏播放中');
+      if (nativeRes === false) return false;
+      if (nativeRes === 'scrolled' || hasUserScrolled()) return 'scrolled';
+      if (nativeRes !== 'fallback') {
+        return nativeRes === 'lost' ? 'retry' : true;
+      }
+    }
+
+    // 兜底（找不到大屏链接或打开失败）：原地播放，等它播完，不加黑色幕布
     curArt = findArticleByKey(key) || curArt;
     if (!v || !document.body.contains(v)) {
       v = await waitForVideoEl(curArt, token);
@@ -1626,16 +1743,27 @@
       if (hasUserScrolled()) return 'scrolled';
     }
     if (!v) {
-      return await interruptibleSleep(5000, token, '🎬 视频没加载出来，先看画面');
+      return await interruptibleSleep(5000, token, null);
     }
 
+    if (curArt) {
+      const r = v.getBoundingClientRect();
+      if (r.top < 60 || r.bottom > window.innerHeight) {
+        v.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (!(await interruptibleSleep(500, token))) return false;
+        if (hasUserScrolled()) return 'scrolled';
+      }
+    }
+
+    const overlay = createNativeLightboxOverlay(v);
     const reacquire = () => {
       const art = findArticleByKey(key);
       return art ? getVisibleVideos(art)[0] || null : null;
     };
 
-    const result = await playVideoFullscreen(v, token, '🎬 全屏播放中', reacquire);
-    if (result === false) return false;
+    const result = await waitForVideoEnd(v, token, '🎬 原地播放', overlay, reacquire);
+    overlay.close();
+    if (result === 'stopped' || !alive(token)) return false;
     if (result === 'scrolled' || hasUserScrolled()) return 'scrolled';
     return result === 'lost' ? 'retry' : true;
   }
@@ -1698,13 +1826,14 @@
     return { slots, videos, photoCount, videoCount, total, firstSlot };
   }
 
-  /** 单图：点开大图全屏 5 秒，然后关掉（如果用户自己关掉了大图，立刻结束去下一条） */
+  /** 单图：点开大图全屏按配置秒数浏览，然后关掉（如果用户自己关掉了大图，立刻结束去下一条） */
   async function handleSinglePhoto(m, token) {
     if (hasUserScrolled()) return 'scrolled';
+    const photoDurationMs = (settings.photoDuration || 5) * 1000;
     const slot = m.slots.get(m.firstSlot);
     if (!slot || slot.kind !== 'photo') {
-      // 打不开大图（比如是卡片链接），就原地看 5 秒
-      return await interruptibleSleep(5000, token, '🖼️ 图片欣赏中');
+      // 打不开大图（比如是卡片链接），就原地看配置秒数
+      return await interruptibleSleep(photoDurationMs, token, '🖼️ 图片欣赏中');
     }
 
     updateStatus('🖼️ 单图点开全屏浏览...');
@@ -1725,8 +1854,8 @@
       return true;
     }
 
-    // 等 5 秒，但如果用户自己关掉了大图，立刻提前结束
-    if (!(await interruptibleSleep(5000, token, '🖼️ 单图全屏欣赏中', () => !isLightboxOpen()))) {
+    // 等设定的秒数，但如果用户自己关掉了大图，立刻提前结束
+    if (!(await interruptibleSleep(photoDurationMs, token, '🖼️ 单图全屏欣赏中', () => !isLightboxOpen()))) {
       if (isLightboxOpen()) closeLightbox();
       return false;
     }
@@ -1764,18 +1893,16 @@
 
       if (v) {
         let handledByNative = false;
-        if (videoMode === 'native') {
-          const videoLink = findOwnVideoLink(curArt, i + 1);
-          if (videoLink) {
-            const nativeRes = await playVideoInXLightbox(curArt, videoLink, v, token, `🎬 X 大屏播放中 ${tag}`);
-            if (nativeRes === false) return false;
-            if (nativeRes === 'scrolled' || hasUserScrolled()) return 'scrolled';
-            if (nativeRes !== 'fallback') {
-              handledByNative = true;
-              // 如果后面还有别的格子要看，先确认已经回到时间线
-              if ((i + 1 < before || m.firstSlot !== -1) && currentHomePath) {
-                if (!(await ensureBackOnTimeline(currentHomePath, token))) return false;
-              }
+        const videoLink = findOwnVideoLink(curArt, i + 1);
+        if (videoLink) {
+          const nativeRes = await playVideoInXLightbox(curArt, videoLink, v, token, `🎬 X 大屏播放中 ${tag}`);
+          if (nativeRes === false) return false;
+          if (nativeRes === 'scrolled' || hasUserScrolled()) return 'scrolled';
+          if (nativeRes !== 'fallback') {
+            handledByNative = true;
+            // 如果后面还有别的格子要看，先确认已经回到时间线
+            if ((i + 1 < before || m.firstSlot !== -1) && currentHomePath) {
+              if (!(await ensureBackOnTimeline(currentHomePath, token))) return false;
             }
           }
         }
@@ -1787,12 +1914,14 @@
             const art = findArticleByKey(key);
             return art ? getVisibleVideos(art)[i] || null : null;
           };
-          const res = await playVideoFullscreen(v, token, `🎬 全屏视频 ${tag}`, reacquire);
-          if (res === false) return false;
+          const overlay = createNativeLightboxOverlay(v);
+          const res = await waitForVideoEnd(v, token, `🎬 视频 ${tag}`, overlay, reacquire);
+          overlay.close();
+          if (res === false || res === 'stopped') return false;
           if (res === 'scrolled' || hasUserScrolled()) return 'scrolled';
           if (res === 'skipped') return true;
         }
-      } else if (!(await interruptibleSleep(5000, token, `🖼️ 图片 ${tag}`))) {
+      } else if (!(await interruptibleSleep((settings.photoDuration || 5) * 1000, token, `🖼️ 图片 ${tag}`))) {
         return false;
       }
       if (hasUserScrolled()) return 'scrolled';
@@ -1893,26 +2022,15 @@
       }
 
       if (v) {
-        let res;
-        if (videoMode === 'native') {
-          res = await playModalVideoNatively(
-            v,
-            findArticleByKey(key) || article,
-            null,
-            token,
-            `🎬 X 大屏播放中 ${tag}`,
-            getActiveModalVideo,
-            () => !isLightboxOpen() || didSlideChange()
-          );
-        } else {
-          res = await playVideoFullscreen(
-            v,
-            token,
-            `🎬 全屏视频 ${tag}`,
-            getActiveModalVideo,
-            () => !isLightboxOpen() || didSlideChange()
-          );
-        }
+        const res = await playModalVideoNatively(
+          v,
+          findArticleByKey(key) || article,
+          null,
+          token,
+          `🎬 X 大屏播放中 ${tag}`,
+          getActiveModalVideo,
+          () => !isLightboxOpen() || didSlideChange()
+        );
         if (res === false) {
           if (isLightboxOpen()) closeLightbox();
           return false;
@@ -1926,7 +2044,7 @@
           return true;
         }
       } else {
-        if (!(await interruptibleSleep(5000, token, `🖼️ 全屏大图 ${tag}`, () => !isLightboxOpen() || didSlideChange()))) {
+        if (!(await interruptibleSleep((settings.photoDuration || 5) * 1000, token, `🖼️ 全屏大图 ${tag}`, () => !isLightboxOpen() || didSlideChange()))) {
           if (isLightboxOpen()) closeLightbox();
           return false;
         }
@@ -1984,9 +2102,9 @@
     }));
   }
 
-  /** 纯文本推文：停留 4 秒 */
+  /** 纯文本推文：停留配置秒数 */
   async function handlePlainText(token) {
-    return await interruptibleSleep(4000, token, '📝 文字阅读中');
+    return await interruptibleSleep((settings.textDuration || 4) * 1000, token, '📝 文字阅读中');
   }
 
   // -------------------------------------------------------------
@@ -2096,7 +2214,6 @@
       // 观看过程中用户自己滚动了页面：当前这条立刻结束算看过，不滚回去，等用户停下后接着播
       if (result === 'scrolled' || hasUserScrolled()) {
         markDone(article);
-        hideVideoOverlay();
         if (isLightboxOpen()) closeLightbox();
         if (!(await waitForUserScrollIdle(token))) break;
         mode = 'fresh';
@@ -2136,7 +2253,6 @@
       currentHomePath = null;
       scriptLightboxActive = false;
       scriptLightboxStatusId = null;
-      hideVideoOverlay();
     }
 
     if (isRunning) {
@@ -2149,6 +2265,7 @@
   // -------------------------------------------------------------
 
   function init() {
+    loadSettings();
     initUserInputListeners();
     createFloatingWidget();
     // 监听 URL 变化或页面重载以保持悬浮按钮始终存在
